@@ -6,19 +6,17 @@ public class PlayerUI : MonoBehaviour
     [Header("UI References")]
     [SerializeField] private Slider healthBar;
     [SerializeField] private Slider energyBar;
-    [SerializeField] private Text healthText;
-    [SerializeField] private Text energyText;
     
-    private PlayerController player;
+    private PlayerController _player;
     
     void Start()
     {
-        // get player Controller
-        player = FindObjectOfType<PlayerController>();
+        // Get player controller - Using Unity 6's new API
+        _player = FindFirstObjectByType<PlayerController>();
         
-        if (player == null)
+        if (_player == null)
         {
-            Debug.LogError("找不到PlayerController!");
+            Debug.LogError("PlayerController not found!");
             return;
         }
         
@@ -28,7 +26,7 @@ public class PlayerUI : MonoBehaviour
     
     void Update()
     {
-        if (player != null)
+        if (_player != null)
         {
             UpdateUI();
         }
@@ -39,26 +37,15 @@ public class PlayerUI : MonoBehaviour
         // Update HP bar
         if (healthBar != null)
         {
-            healthBar.maxValue = player.GetMaxHealth();
-            healthBar.value = player.GetCurrentHealth();
+            healthBar.maxValue = _player.GetMaxHealth();
+            healthBar.value = _player.GetCurrentHealth();
         }
         
         // Update Energy Bar
         if (energyBar != null)
         {
-            energyBar.maxValue = player.GetMaxEnergy();
-            energyBar.value = player.GetCurrentEnergy();
-        }
-        
-        // Update Text Display
-        if (healthText != null)
-        {
-            healthText.text = $"HP: {player.GetCurrentHealth()}/{player.GetMaxHealth()}";
-        }
-        
-        if (energyText != null)
-        {
-            energyText.text = $"Energy: {player.GetCurrentEnergy()}/{player.GetMaxEnergy()}";
+            energyBar.maxValue = _player.GetMaxEnergy();
+            energyBar.value = _player.GetCurrentEnergy();
         }
     }
 }
