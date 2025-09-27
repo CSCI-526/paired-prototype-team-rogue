@@ -2,102 +2,114 @@ using UnityEngine;
 
 public class PlayerAnimationController : MonoBehaviour
 {
-    [Header("Components")]
-    [SerializeField] private Animator animator;
-    [SerializeField] private SpriteRenderer spriteRenderer;
-    
-    // Animation parameter names
-    private const string PARAM_MOVE_X = "MoveX";
-    private const string PARAM_MOVE_Y = "MoveY";
-    private const string PARAM_IS_MOVING = "IsMoving";
-    private const string PARAM_IS_ATTACKING = "IsAttacking";
-    private const string PARAM_COMBO_INDEX = "ComboIndex";
-    private const string TRIGGER_ATTACK = "Attack";
-    private const string TRIGGER_SPECIAL = "SpecialAttack";
-    private const string TRIGGER_DODGE = "Dodge";
-    private const string TRIGGER_HIT = "Hit";
-    
-    private PlayerController _playerController;
-    private Vector2 _lastMoveDirection;
-    
+    private Animator _animator;
+    private int _directionXHash;
+    private int _directionYHash;
+    private int _isMovingHash;
+    private int _isAttackingHash;
+    private int _comboIndexHash;
+    private int _isSpecialHash;
+    private int _isDodgingHash;
+    private int _isHitHash;
+
+    private Vector2 _lastMoveDirection = Vector2.zero;
+
     void Start()
     {
-        // Get required components
-        _playerController = GetComponent<PlayerController>();
-        
-        if (animator == null)
-            animator = GetComponent<Animator>();
-            
-        if (spriteRenderer == null)
-            spriteRenderer = GetComponentInChildren<SpriteRenderer>();
-            
-        if (_playerController == null)
+        _animator = GetComponent<Animator>();
+        if (_animator == null)
         {
-            Debug.LogError("PlayerAnimationController requires PlayerController component!");
+            _animator = gameObject.AddComponent<Animator>();
+        }
+
+        _directionXHash = Animator.StringToHash("DirectionX");
+        _directionYHash = Animator.StringToHash("DirectionY");
+        _isMovingHash = Animator.StringToHash("IsMoving");
+        _isAttackingHash = Animator.StringToHash("IsAttacking");
+        _comboIndexHash = Animator.StringToHash("ComboIndex");
+        _isSpecialHash = Animator.StringToHash("IsSpecial");
+        _isDodgingHash = Animator.StringToHash("IsDodging");
+        _isHitHash = Animator.StringToHash("IsHit");
+    }
+
+    public void UpdateMovement(Vector2 moveDirection)
+    {
+        if (moveDirection.magnitude > 0.1f)
+        {
+            _lastMoveDirection = moveDirection.normalized;
+        }
+
+        if (_animator != null)
+        {
+            _animator.SetFloat(_directionXHash, _lastMoveDirection.x);
+            _animator.SetFloat(_directionYHash, _lastMoveDirection.y);
+            _animator.SetBool(_isMovingHash, moveDirection.magnitude > 0.1f);
         }
     }
-    
-    void Update()
+
+    public void TriggerAttack(int comboIndex = 0)
     {
-        if (_playerController == null || animator == null) return;
-        
-        UpdateAnimationParameters();
-    }
-    
-    void UpdateAnimationParameters()
-    {
-        // Get movement input
-        float moveX = Input.GetAxisRaw("Horizontal");
-        float moveY = Input.GetAxisRaw("Vertical");
-        bool isMoving = Mathf.Abs(moveX) > 0.1f || Mathf.Abs(moveY) > 0.1f;
-        
-        // Update movement parameters
-        animator.SetBool(PARAM_IS_MOVING, isMoving);
-        
-        // Keep last move direction when stopping
-        if (isMoving)
+        if (_animator != null)
         {
-            _lastMoveDirection = new Vector2(moveX, moveY).normalized;
+            _animator.SetBool(_isAttackingHash, true);
+            _animator.SetInteger(_comboIndexHash, comboIndex);
         }
-        
-        // Set direction for blend tree
-        animator.SetFloat(PARAM_MOVE_X, _lastMoveDirection.x);
-        animator.SetFloat(PARAM_MOVE_Y, _lastMoveDirection.y);
-        
-        // Update attack state
-        animator.SetBool(PARAM_IS_ATTACKING, _playerController.IsAttacking());
     }
-    
-    // Called by PlayerController when attacking
-    public void TriggerAttack(int comboIndex)
+
+    public void EndAttack()
     {
-        if (animator == null) return;
-        
-        animator.SetInteger(PARAM_COMBO_INDEX, comboIndex);
-        animator.SetTrigger(TRIGGER_ATTACK);
+        if (_animator != null)
+        {
+            _animator.SetBool(_isAttackingHash, false);
+            _animator.SetInteger(_comboIndexHash, 0);
+        }
     }
-    
-    // Called by PlayerController for special attack
-    public void TriggerSpecialAttack()
+
+    public void TriggerSpecial()
     {
-        if (animator == null) return;
-        
-        animator.SetTrigger(TRIGGER_SPECIAL);
+        if (_animator != null)
+        {
+            _animator.SetBool(_isSpecialHash, true);
+        }
     }
-    
-    // Called by PlayerController when dodging
+
+    public void EndSpecial()
+    {
+        if (_animator != null)
+        {
+            _animator.SetBool(_isSpecialHash, false);
+        }
+    }
+
     public void TriggerDodge()
     {
-        if (animator == null) return;
-        
-        animator.SetTrigger(TRIGGER_DODGE);
+        if (_animator != null)
+        {
+            _animator.SetBool(_isDodgingHash, true);
+        }
     }
-    
-    // Called when player takes damage
+
+    public void EndDodge()
+    {
+        if (_animator != null)
+        {
+            _animator.SetBool(_isDodgingHash, false);
+        }
+    }
+
     public void TriggerHit()
     {
-        if (animator == null) return;
-        
-        animator.SetTrigger(TRIGGER_HIT);
+        if (_animator != null)
+        {
+            _animator.SetBool(_isHitHash, true);
+        }
+    }
+
+    public void EndHit()
+    {
+        if (_animator != null)
+        {
+            _animator.SetBool(_isHitHash, false);
+        }
     }
 }

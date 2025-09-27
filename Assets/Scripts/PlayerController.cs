@@ -4,61 +4,39 @@ public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
     [SerializeField] private float moveSpeed = 5f;
-    [SerializeField] private float dodgeSpeed = 15f;
+    [SerializeField] private float dodgeSpeed = 10f;
     [SerializeField] private float dodgeDuration = 0.2f;
-    [SerializeField] private float dodgeCooldown = 0.5f;
-    
+    [SerializeField] private float dodgeCooldown = 1f;
+
     [Header("Combat Settings")]
-    [SerializeField] private float attackCooldown = 0.3f;
-    [SerializeField] private int maxEnergy = 100;
-    [SerializeField] private int energyPerHit = 20;
-    [SerializeField] private int maxHealth = 100;
-    
-    [Header("Component References")]
+    [SerializeField] private float attackCooldown = 0.5f;
+    [SerializeField] private float specialEnergyCost = 100f;
+    [SerializeField] private float AttackSlowMultiplier = 0.5f;
     [SerializeField] private Transform weaponPivot;
     [SerializeField] private Transform weapon;
-    
-    // Direction enum for cleaner code
-    public enum Direction
-    {
-        Up,
-        Down,
-        Left,
-        Right
-    }
-    
-    // Movement
-    private Vector2 _moveInput;
-    private Vector2 _mousePosition;
+
+    [Header("Resource Settings")]
+    [SerializeField] public float maxHealth = 100f;
+    [SerializeField] public float maxEnergy = 100f;
+    public float MaxHealth => maxHealth; 
+    public float MaxEnergy => maxEnergy; 
     private Rigidbody2D _rb;
-    private Camera _mainCamera;
-    
-    // Animation controller
     private PlayerAnimationController _animController;
-    
-    // Direction
-    private Direction _currentFacing = Direction.Right;
-    private Direction _attackDirection = Direction.Right;
-    
-    // Dodge
+    private Vector2 _moveInput;
+    private Vector2 _dodgeDirection;
     private bool _isDodging = false;
     private float _dodgeTimer = 0f;
     private float _lastDodgeTime = -999f;
-    private Vector2 _dodgeDirection;
-    
-    // Combat
-    private int _currentCombo = 0;
-    private float _lastAttackTime = -999f;
-    private float _comboResetTime = 1f;
     private bool _isAttacking = false;
-    private float _attackAnimTimer = 0f;
-    
-    // Resource
-    private int _currentHealth;
-    private int _currentEnergy = 0;
-    
-    private const float AttackSlowMultiplier = 0.3f;
-    
+    private float _lastAttackTime = -999f;
+    private int _comboIndex = 0;
+    private bool _isSpecial = false;
+    private float _currentHealth;
+    private float _currentEnergy;
+    private Direction _currentFacing = Direction.Down;
+
+    private enum Direction { Up, Down, Left, Right }
+
     void Start()
     {
         _rb = GetComponent<Rigidbody2D>();
@@ -67,447 +45,289 @@ public class PlayerController : MonoBehaviour
             _rb = gameObject.AddComponent<Rigidbody2D>();
             _rb.gravityScale = 0f;
             _rb.freezeRotation = true;
+            _rb.bodyType = RigidbodyType2D.Dynamic;
+            Debug.LogWarning("Added Rigidbody2D to Player - Check Inspector settings!");
         }
-        
-        _mainCamera = Camera.main;
-        
-        // Get animation controller if exists
-        _animController = GetComponent<PlayerAnimationController>();
-        
-        // Initialize Health
-        _currentHealth = maxHealth;
-        
-        // Initialize Weapon Location
-        if (weapon != null)
+        else
         {
-            weapon.localPosition = new Vector3(0.8f, 0, 0);
+            Debug.Log("Player Rigidbody2D found - BodyType: " + _rb.bodyType + ", Constraints: " + _rb.constraints);
         }
-        
-        // Set initial facing direction
-        UpdateFacingDirection(_currentFacing);
+
+        _animController = GetComponent<PlayerAnimationController>();
+        if (_animController == null)
+        {
+            Debug.LogError("PlayerAnimationController not found on Player!");
+        }
+
+        _currentHealth = maxHealth;
+        _currentEnergy = 0f;
+
+        if (weaponPivot == null)
+        {
+            Debug.LogError("WeaponPivot not assigned in PlayerController!");
+        }
+        if (weapon == null)
+        {
+            Debug.LogError("Weapon not assigned in PlayerController!");
+        }
+
+        Debug.Log("PlayerController Start - Rigidbody: " + (_rb != null) + ", Anim: " + (_animController != null) + ", Position: " + transform.position);
     }
-    
+
     void Update()
     {
         HandleInput();
-        UpdateTimers();
+        UpdateFacing();
+        if (_animController != null) _animController.UpdateMovement(_moveInput);
     }
-    
+
     void FixedUpdate()
     {
         HandleMovement();
     }
-    
+
     void HandleInput()
     {
-        // Movement Input
-        _moveInput.x = Input.GetAxisRaw("Horizontal");
-        _moveInput.y = Input.GetAxisRaw("Vertical");
+        _moveInput.x = Input.GetAxisRaw("Horizontal"); 
+        _moveInput.y = Input.GetAxisRaw("Vertical");   
         _moveInput = _moveInput.normalized;
-        
-        // Update facing direction based on movement (only when not attacking)
-        if (!_isAttacking && _moveInput.magnitude > 0.1f)
+
+        #if UNITY_EDITOR
+        Debug.Log("HandleInput - Move Input: " + _moveInput + ", Time: " + Time.time + ", Player Active: " + gameObject.activeSelf + ", Position: " + transform.position);
+        #endif
+
+        if (Input.anyKeyDown) 
         {
-            Direction newDirection = GetDirectionFromVector(_moveInput);
-            if (newDirection != _currentFacing)
-            {
-                UpdateFacingDirection(newDirection);
-            }
+            #if UNITY_EDITOR
+            Debug.Log("Any Key Pressed - Player State: Active=" + gameObject.activeSelf + ", Rigidbody=" + (_rb != null) + ", Camera.main=" + (Camera.main != null));
+            #endif
         }
-        
-        // Mouse Position
-        _mousePosition = _mainCamera.ScreenToWorldPoint(Input.mousePosition);
-        
-        // Dodge Input
-        if (Input.GetKeyDown(KeyCode.Space) && !_isDodging && Time.time > _lastDodgeTime + dodgeCooldown)
+
+        if (Input.GetKeyDown(KeyCode.Space) && Time.time > _lastDodgeTime + dodgeCooldown && !_isAttacking)
         {
             StartDodge();
         }
-        
-        // Normal Attack
-        if (Input.GetMouseButtonDown(0) && !_isDodging && !_isAttacking)
+
+        if (Input.GetMouseButtonDown(0) && Time.time > _lastAttackTime + attackCooldown && !_isDodging)
         {
-            // Determine attack direction based on mouse position
-            _attackDirection = GetAttackDirection();
-            UpdateFacingDirection(_attackDirection);
-            PerformNormalAttack();
+            StartAttack();
         }
-        
-        // Special Attack
-        if (Input.GetMouseButtonDown(1) && !_isDodging && !_isAttacking && _currentEnergy >= maxEnergy)
+
+        if (Input.GetMouseButtonDown(1) && Time.time > _lastAttackTime + attackCooldown && _currentEnergy >= specialEnergyCost && !_isDodging)
         {
-            _attackDirection = GetAttackDirection();
-            UpdateFacingDirection(_attackDirection);
-            PerformSpecialAttack();
+            StartSpecial();
         }
     }
-    
-    Direction GetDirectionFromVector(Vector2 vector)
+
+    void UpdateFacing()
     {
-        // Convert vector to 4-directional
-        float absX = Mathf.Abs(vector.x);
-        float absY = Mathf.Abs(vector.y);
-        
-        if (absX > absY)
+        if (_moveInput.magnitude > 0.1f)
         {
-            return vector.x > 0 ? Direction.Right : Direction.Left;
-        }
-        else
-        {
-            return vector.y > 0 ? Direction.Up : Direction.Down;
-        }
-    }
-    
-    Direction GetAttackDirection()
-    {
-        // Get mouse position relative to player
-        Vector2 mouseRelative = _mousePosition - (Vector2)transform.position;
-        return GetDirectionFromVector(mouseRelative);
-    }
-    
-    void UpdateFacingDirection(Direction direction)
-    {
-        _currentFacing = direction;
-        
-        // Update weapon pivot rotation based on direction
-        if (weaponPivot != null)
-        {
-            float angle = 0f;
-            switch (direction)
+            if (Mathf.Abs(_moveInput.x) > Mathf.Abs(_moveInput.y))
             {
-                case Direction.Right:
-                    angle = 0f;
-                    break;
-                case Direction.Up:
-                    angle = 90f;
-                    break;
-                case Direction.Left:
-                    angle = 180f;
-                    break;
-                case Direction.Down:
-                    angle = -90f;
-                    break;
+                _currentFacing = _moveInput.x > 0 ? Direction.Right : Direction.Left;
             }
-            weaponPivot.rotation = Quaternion.Euler(0, 0, angle);
+            else
+            {
+                _currentFacing = _moveInput.y > 0 ? Direction.Up : Direction.Down;
+            }
+        }
+
+        if (Camera.main != null)
+        {
+            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            Vector2 direction = (mousePos - weaponPivot.position).normalized; // Use weaponPivot for pivot point
+            if (direction.magnitude > 0.1f)
+            {
+                if (Mathf.Abs(direction.x) > Mathf.Abs(direction.y))
+                {
+                    _currentFacing = direction.x > 0 ? Direction.Right : Direction.Left;
+                }
+                else
+                {
+                    _currentFacing = direction.y > 0 ? Direction.Up : Direction.Down;
+                }
+            }
+        }
+
+        UpdateWeaponRotation();
+    }
+
+    void UpdateWeaponRotation()
+    {
+        if (weaponPivot != null && weapon != null && Camera.main != null)
+        {
+            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            Vector2 direction = (mousePos - weaponPivot.position).normalized; // Direction from pivot to mouse
+            float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg; // Use positive Y for correct up/down
+            weaponPivot.rotation = Quaternion.Euler(0, 0, angle); // Adjust based on sprite orientation
         }
     }
-    
+
     void HandleMovement()
     {
         if (_isDodging)
         {
-            // Dodge movement
+            _dodgeTimer -= Time.deltaTime;
             _rb.linearVelocity = _dodgeDirection * dodgeSpeed;
-        }
-        else if (!_isAttacking)
-        {
-            // Normal movement
-            _rb.linearVelocity = _moveInput * moveSpeed;
+            if (weapon != null) weapon.position = transform.position + weapon.localPosition;
+            if (_dodgeTimer <= 0) EndDodge();
         }
         else
         {
-            // Slow down when attacking
-            _rb.linearVelocity = _moveInput * (moveSpeed * AttackSlowMultiplier);
+            _rb.linearVelocity = _moveInput * moveSpeed;
         }
     }
-    
+
     void StartDodge()
     {
         _isDodging = true;
         _dodgeTimer = dodgeDuration;
         _lastDodgeTime = Time.time;
-        
-        // Dodge Direction
+
         if (_moveInput.magnitude > 0.1f)
         {
-            _dodgeDirection = _moveInput;
+            _dodgeDirection = _moveInput.normalized;
         }
         else
         {
-            // Dodge in facing direction if no movement input
-            _dodgeDirection = GetVectorFromDirection(_currentFacing);
+            _dodgeDirection = GetVectorFromDirection(_currentFacing).normalized;
         }
-        
-        // Trigger dodge animation if animation controller exists
-        if (_animController != null)
-        {
-            _animController.TriggerDodge();
-        }
-        
-        #if UNITY_EDITOR
-        Debug.Log("Dodging!");
-        #endif
+
+        if (_animController != null) _animController.TriggerDodge();
+        if (weapon != null) weapon.SetParent(transform, true);
+
+
     }
-    
-    Vector2 GetVectorFromDirection(Direction direction)
+
+    void EndDodge()
     {
-        switch (direction)
-        {
-            case Direction.Up:
-                return Vector2.up;
-            case Direction.Down:
-                return Vector2.down;
-            case Direction.Left:
-                return Vector2.left;
-            case Direction.Right:
-                return Vector2.right;
-            default:
-                return Vector2.right;
-        }
+        _isDodging = false;
+        _rb.linearVelocity = Vector2.zero;
+        if (_animController != null) _animController.EndDodge();
+
     }
-    
-    void PerformNormalAttack()
+
+    void StartAttack()
     {
-        // Check Combo timing
-        if (Time.time > _lastAttackTime + _comboResetTime)
-        {
-            _currentCombo = 0;
-        }
-        
         _isAttacking = true;
-        _attackAnimTimer = attackCooldown;
         _lastAttackTime = Time.time;
-        
-        // Execute different attack animations based on direction and combo
-        switch (_currentCombo)
-        {
-            case 0:
-                Attack1();
-                break;
-            case 1:
-                Attack2();
-                break;
-            case 2:
-                Attack3();
-                break;
-        }
-        
-        _currentCombo = (_currentCombo + 1) % 3;
-    }
-    
-    void Attack1()
-    {
-        #if UNITY_EDITOR
-        Debug.Log($"Attack 1 - Direction: {_attackDirection}");
-        #endif
-        
-        // Trigger animation if animation controller exists
-        if (_animController != null)
-        {
-            _animController.TriggerAttack(0);
-        }
-        
+        _comboIndex = (_comboIndex + 1) % 3;
+        if (_animController != null) _animController.TriggerAttack(_comboIndex);
+
         if (weaponPivot != null)
         {
-            // Swing based on current attack direction
-            StartCoroutine(DirectionalSwing(-30f, 30f, 0.2f));
+            StartCoroutine(SwingWeapon());
         }
     }
-    
-    void Attack2()
-    {
-        #if UNITY_EDITOR
-        Debug.Log($"Attack 2 - Direction: {_attackDirection}");
-        #endif
-        
-        // Trigger animation if animation controller exists
-        if (_animController != null)
-        {
-            _animController.TriggerAttack(1);
-        }
-        
-        if (weaponPivot != null)
-        {
-            // Opposite swing
-            StartCoroutine(DirectionalSwing(30f, -30f, 0.2f));
-        }
-    }
-    
-    void Attack3()
-    {
-        #if UNITY_EDITOR
-        Debug.Log($"Attack 3 - Direction: {_attackDirection}");
-        #endif
-        
-        // Trigger animation if animation controller exists
-        if (_animController != null)
-        {
-            _animController.TriggerAttack(2);
-        }
-        
-        if (weaponPivot != null)
-        {
-            // Wide swing for combo finisher
-            StartCoroutine(DirectionalSwing(-45f, 45f, 0.3f));
-        }
-    }
-    
-    void PerformSpecialAttack()
-    {
-        #if UNITY_EDITOR
-        Debug.Log($"Special Attack - Direction: {_attackDirection}");
-        #endif
-        
-        _isAttacking = true;
-        _attackAnimTimer = 0.5f;
-        _currentEnergy = 0;
-        
-        // Trigger special attack animation if animation controller exists
-        if (_animController != null)
-        {
-            _animController.TriggerSpecialAttack();
-        }
-        
-        if (weaponPivot != null)
-        {
-            StartCoroutine(SpinAttack(360f, 0.5f));
-        }
-    }
-    
-    System.Collections.IEnumerator DirectionalSwing(float startAngle, float endAngle, float duration)
+
+    System.Collections.IEnumerator SwingWeapon()
     {
         float elapsed = 0f;
-        float baseAngle = GetAngleFromDirection(_attackDirection);
-        
-        while (elapsed < duration)
+        Quaternion startRotation = weaponPivot.rotation;
+        float swingAngle = _comboIndex == 0 ? 90f : _comboIndex == 1 ? -90f : 0f; // Larger swing for melee effect
+        Quaternion targetRotation = startRotation * Quaternion.Euler(0, 0, swingAngle);
+
+        while (elapsed < attackCooldown)
         {
             elapsed += Time.deltaTime;
-            float t = elapsed / duration;
-            float angle = Mathf.Lerp(startAngle, endAngle, t);
-            weaponPivot.rotation = Quaternion.Euler(0, 0, baseAngle + angle);
+            float t = elapsed / attackCooldown;
+            if (t < 0.5f) 
+                weaponPivot.rotation = Quaternion.Lerp(startRotation, targetRotation, t * 2f);
+            else 
+                weaponPivot.rotation = Quaternion.Lerp(targetRotation, startRotation, (t - 0.5f) * 2f);
             yield return null;
         }
-        
-        // Return to base direction
-        weaponPivot.rotation = Quaternion.Euler(0, 0, baseAngle);
+
+        weaponPivot.rotation = startRotation; 
+        _isAttacking = false;
+        if (_animController != null) _animController.EndAttack();
     }
-    
-    float GetAngleFromDirection(Direction direction)
+
+    void StartSpecial()
     {
-        switch (direction)
-        {
-            case Direction.Right:
-                return 0f;
-            case Direction.Up:
-                return 90f;
-            case Direction.Left:
-                return 180f;
-            case Direction.Down:
-                return -90f;
-            default:
-                return 0f;
-        }
+        _isSpecial = true;
+        _lastAttackTime = Time.time;
+        _currentEnergy = 0f;
+        if (_animController != null) _animController.TriggerSpecial();
+        if (weaponPivot != null) StartCoroutine(SpinWeapon());
     }
-    
-    System.Collections.IEnumerator SpinAttack(float totalRotation, float duration)
+
+    System.Collections.IEnumerator SpinWeapon()
     {
         float elapsed = 0f;
-        float startRotation = weaponPivot.eulerAngles.z;
-        
-        while (elapsed < duration)
+        Quaternion startRotation = weaponPivot.rotation;
+
+        while (elapsed < attackCooldown)
         {
             elapsed += Time.deltaTime;
-            float t = elapsed / duration;
-            float angle = Mathf.Lerp(0, totalRotation, t);
-            weaponPivot.rotation = Quaternion.Euler(0, 0, startRotation + angle);
+            weaponPivot.rotation = startRotation * Quaternion.Euler(0, 0, 360f * (elapsed / attackCooldown));
             yield return null;
         }
-        
-        // Return to current facing direction
-        UpdateFacingDirection(_currentFacing);
+
+        weaponPivot.rotation = startRotation;
+        _isSpecial = false;
+        if (_animController != null) _animController.EndSpecial();
     }
-    
-    void UpdateTimers()
+
+    public void TakeDamage(float damage)
     {
-        // Update Dodge timer
-        if (_isDodging)
-        {
-            _dodgeTimer -= Time.deltaTime;
-            if (_dodgeTimer <= 0)
-            {
-                _isDodging = false;
-            }
-        }
-        
-        // Update Attack timer
-        if (_isAttacking)
-        {
-            _attackAnimTimer -= Time.deltaTime;
-            if (_attackAnimTimer <= 0)
-            {
-                _isAttacking = false;
-            }
-        }
-    }
-    
-    // Public methods for other systems
-    public void AddEnergy(int amount)
-    {
-        _currentEnergy = Mathf.Min(_currentEnergy + amount, maxEnergy);
-        
-        #if UNITY_EDITOR
-        Debug.Log($"Gained Energy: {amount}, Current Energy: {_currentEnergy}/{maxEnergy}");
-        #endif
-    }
-    
-    public void OnHitEnemy()
-    {
-        // Gain energy when hitting an enemy
-        AddEnergy(energyPerHit);
-    }
-    
-    public void TakeDamage(int damage)
-    {
-        _currentHealth = Mathf.Max(_currentHealth - damage, 0);
-        
-        // Trigger hit animation if animation controller exists
-        if (_animController != null)
-        {
-            _animController.TriggerHit();
-        }
-        
-        #if UNITY_EDITOR
-        Debug.Log($"Took Damage: {damage}, Current HP: {_currentHealth}/{maxHealth}");
-        #endif
-        
-        // Check if dead
+        Debug.Log("TakeDamage called - Damage: " + damage + ", Current Health: " + _currentHealth);
+        _currentHealth -= damage;
         if (_currentHealth <= 0)
         {
-            OnDeath();
+            Die();
+        }
+        else if (_animController != null)
+        {
+            _animController.TriggerHit();
+            Invoke("EndHit", 0.1f);
         }
     }
-    
-    void OnDeath()
+
+    void EndHit()
     {
-        // Notify GameManager
+        if (_animController != null) _animController.EndHit();
+    }
+
+    void Die()
+    {
+        _currentHealth = 0;
+        if (_animController != null) _animController.TriggerHit();
         if (GameManager.Instance != null)
         {
             GameManager.Instance.OnPlayerDeath();
         }
-        
-        // Disable controls
-        enabled = false;
+        else
+        {
+            Debug.LogWarning("Die - GameManager.Instance is null!");
+        }
     }
-    
-    // Save/Load methods for level transitions
-    public void SetHealth(int current, int max)
+
+    public void OnHitEnemy()
     {
-        _currentHealth = current;
-        maxHealth = max;
+        _currentEnergy = Mathf.Min(_currentEnergy + 10f, maxEnergy);
     }
-    
-    public void SetEnergy(int current, int max)
+
+    Vector2 GetVectorFromDirection(Direction dir)
     {
-        _currentEnergy = current;
-        maxEnergy = max;
+        switch (dir)
+        {
+            case Direction.Up: return Vector2.up;
+            case Direction.Down: return Vector2.down;
+            case Direction.Left: return Vector2.left;
+            case Direction.Right: return Vector2.right;
+            default: return Vector2.down;
+        }
     }
-    
-    // Getters
-    public int GetCurrentHealth() => _currentHealth;
-    public int GetMaxHealth() => maxHealth;
-    public int GetCurrentEnergy() => _currentEnergy;
-    public int GetMaxEnergy() => maxEnergy;
-    public bool IsDodging() => _isDodging;
-    public bool IsAttacking() => _isAttacking;
-    public Direction GetCurrentFacing() => _currentFacing;
+
+    public bool IsAttacking()
+    {
+        return _isAttacking || _isSpecial;
+    }
+
+    public float GetHealth() { return _currentHealth; }
+    public void SetHealth(float health) { _currentHealth = Mathf.Clamp(health, 0, maxHealth); }
+    public float GetEnergy() { return _currentEnergy; }
+    public void SetEnergy(float energy) { _currentEnergy = Mathf.Clamp(energy, 0, maxEnergy); }
 }
