@@ -1,0 +1,63 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: faaa37a1934f5dc498434dddcd3753dc, type: 3}
+  m_Name: PowerupPool
+  m_EditorClassIdentifier: 
+  items:
+  - powerupName: Attack Power Lv1
+    description: +2 Attack Power
+    type: 0
+    value: 2
+    icon: {fileID: 0}
+    rarity: 0
+    weightOverride: 0
+  - powerupName: AttackPower Lv2
+    description: +5 Attack Power
+    type: 0
+    value: 5
+    icon: {fileID: 0}
+    rarity: 1
+    weightOverride: 0
+  - powerupName: AttackSpeed Lv1
+    description: +1 Attack Speed
+    type: 1
+    value: 0.1
+    icon: {fileID: 0}
+    rarity: 0
+    weightOverride: 0
+  - powerupName: AttackSpeed Lv2
+    description: +3 Attack Speed
+    type: 1
+    value: 0.3
+    icon: {fileID: 0}
+    rarity: 1
+    weightOverride: 0
+  - powerupName: Movement Speed Lv1
+    description: +1 Movement Speed
+    type: 2
+    value: 0.1
+    icon: {fileID: 0}
+    rarity: 0
+    weightOverride: 0
+  - powerupName: Movement Speed Lv2
+    description: +2 Movement Speed
+    type: 2
+    value: 0.2
+    icon: {fileID: 0}
+    rarity: 1
+    weightOverride: 0
+  common: 100
+  uncommon: 40
+  rare: 15
+  epic: 4
+  legendary: 1
+  allowDuplicates: 0

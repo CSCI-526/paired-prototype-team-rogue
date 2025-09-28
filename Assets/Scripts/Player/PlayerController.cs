@@ -18,6 +18,14 @@ public class PlayerController : MonoBehaviour
     [Header("Resource Settings")]
     [SerializeField] public float maxHealth = 100f;
     [SerializeField] public float maxEnergy = 100f;
+    [SerializeField] private float healthRegenPerSecond = 0f;
+    [SerializeField] private float energyRegenPerSecond = 0f;
+    
+    [Header("Auto Combat")]
+    [SerializeField] private float targetSearchRadius = 30f;   // how far to look for enemies
+    [SerializeField] private float retargetInterval = 0.15f;   // how often to refresh target
+    private Transform _currentTarget;
+    private float _nextRetargetTime = 0f;
     public float MaxHealth => maxHealth; 
     public float MaxEnergy => maxEnergy; 
     private Rigidbody2D _rb;
@@ -77,8 +85,13 @@ public class PlayerController : MonoBehaviour
     void Update()
     {
         HandleInput();
-        UpdateFacing();
+        UpdateAimAndFacing(); 
         if (_animController != null) _animController.UpdateMovement(_moveInput);
+        
+        // regen
+        _currentHealth = Mathf.Min(maxHealth, _currentHealth + healthRegenPerSecond * Time.deltaTime);
+        _currentEnergy = Mathf.Min(maxEnergy, _currentEnergy + energyRegenPerSecond * Time.deltaTime);
+        AutoCombatUpdate(); 
     }
 
     void FixedUpdate()
@@ -88,81 +101,17 @@ public class PlayerController : MonoBehaviour
 
     void HandleInput()
     {
-        _moveInput.x = Input.GetAxisRaw("Horizontal"); 
-        _moveInput.y = Input.GetAxisRaw("Vertical");   
+        _moveInput.x = Input.GetAxisRaw("Horizontal");
+        _moveInput.y = Input.GetAxisRaw("Vertical");
         _moveInput = _moveInput.normalized;
 
-        #if UNITY_EDITOR
-        Debug.Log("HandleInput - Move Input: " + _moveInput + ", Time: " + Time.time + ", Player Active: " + gameObject.activeSelf + ", Position: " + transform.position);
-        #endif
-
-        if (Input.anyKeyDown) 
-        {
-            #if UNITY_EDITOR
-            Debug.Log("Any Key Pressed - Player State: Active=" + gameObject.activeSelf + ", Rigidbody=" + (_rb != null) + ", Camera.main=" + (Camera.main != null));
-            #endif
-        }
-
+        // dodge (保留)
         if (Input.GetKeyDown(KeyCode.Space) && Time.time > _lastDodgeTime + dodgeCooldown && !_isAttacking)
         {
             StartDodge();
         }
-
-        if (Input.GetMouseButtonDown(0) && Time.time > _lastAttackTime + attackCooldown && !_isDodging)
-        {
-            StartAttack();
-        }
-
-        if (Input.GetMouseButtonDown(1) && Time.time > _lastAttackTime + attackCooldown && _currentEnergy >= specialEnergyCost && !_isDodging)
-        {
-            StartSpecial();
-        }
     }
-
-    void UpdateFacing()
-    {
-        if (_moveInput.magnitude > 0.1f)
-        {
-            if (Mathf.Abs(_moveInput.x) > Mathf.Abs(_moveInput.y))
-            {
-                _currentFacing = _moveInput.x > 0 ? Direction.Right : Direction.Left;
-            }
-            else
-            {
-                _currentFacing = _moveInput.y > 0 ? Direction.Up : Direction.Down;
-            }
-        }
-
-        if (Camera.main != null)
-        {
-            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            Vector2 direction = (mousePos - weaponPivot.position).normalized; // Use weaponPivot for pivot point
-            if (direction.magnitude > 0.1f)
-            {
-                if (Mathf.Abs(direction.x) > Mathf.Abs(direction.y))
-                {
-                    _currentFacing = direction.x > 0 ? Direction.Right : Direction.Left;
-                }
-                else
-                {
-                    _currentFacing = direction.y > 0 ? Direction.Up : Direction.Down;
-                }
-            }
-        }
-
-        UpdateWeaponRotation();
-    }
-
-    void UpdateWeaponRotation()
-    {
-        if (weaponPivot != null && weapon != null && Camera.main != null)
-        {
-            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            Vector2 direction = (mousePos - weaponPivot.position).normalized; // Direction from pivot to mouse
-            float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg; // Use positive Y for correct up/down
-            weaponPivot.rotation = Quaternion.Euler(0, 0, angle); // Adjust based on sprite orientation
-        }
-    }
+    
 
     void HandleMovement()
     {
@@ -195,9 +144,6 @@ public class PlayerController : MonoBehaviour
         }
 
         if (_animController != null) _animController.TriggerDodge();
-        if (weapon != null) weapon.SetParent(transform, true);
-
-
     }
 
     void EndDodge()
@@ -207,7 +153,63 @@ public class PlayerController : MonoBehaviour
         if (_animController != null) _animController.EndDodge();
 
     }
+    void AutoCombatUpdate()
+    {
+        if (_isDodging) return;
 
+        // 自动必杀：能量满优先
+        if (!_isAttacking && !_isSpecial && _currentEnergy >= specialEnergyCost)
+        {
+            var t = GetOrFindTarget();
+            if (t != null)
+            {
+                AimAt(t.position);
+                StartSpecial();     // 会清空能量
+                return;
+            }
+        }
+
+        // 自动普攻：按冷却循环
+        if (!_isAttacking && !_isSpecial && Time.time > _lastAttackTime + attackCooldown)
+        {
+            var t = GetOrFindTarget();
+            if (t != null)
+            {
+                AimAt(t.position);
+                StartAttack();
+            }
+        }
+    }
+    
+    void UpdateAimAndFacing()
+    {
+        // periodic retarget
+        if (Time.time >= _nextRetargetTime)
+        {
+            _nextRetargetTime = Time.time + retargetInterval;
+            _currentTarget = FindNearestEnemy(targetSearchRadius);
+        }
+
+        // aim only when we have a target; otherwise keep current rotation
+        if (_currentTarget != null)
+            AimAt(_currentTarget.position);
+    }
+
+    void AimAt(Vector3 worldPos)
+    {
+        if (!weaponPivot) return;
+        Vector2 dir = ((Vector2)worldPos - (Vector2)weaponPivot.position).normalized;
+        if (dir.sqrMagnitude < 1e-4f) return;
+
+        float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        weaponPivot.rotation = Quaternion.Euler(0, 0, angle);
+
+        // update facing for animations
+        _currentFacing = Mathf.Abs(dir.x) > Mathf.Abs(dir.y)
+            ? (dir.x > 0 ? Direction.Right : Direction.Left)
+            : (dir.y > 0 ? Direction.Up    : Direction.Down);
+    }
+    
     void StartAttack()
     {
         _isAttacking = true;
@@ -270,6 +272,36 @@ public class PlayerController : MonoBehaviour
         if (_animController != null) _animController.EndSpecial();
     }
 
+    Transform FindNearestEnemy(float radius)
+    {
+        GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
+        Transform best = null;
+        float bestDist = Mathf.Infinity;
+        Vector2 from = weaponPivot ? (Vector2)weaponPivot.position : (Vector2)transform.position;
+
+        foreach (var e in enemies)
+        {
+            if (!e.activeInHierarchy) continue;
+            float d = Vector2.Distance(from, e.transform.position);
+            if (d < bestDist && d <= radius)
+            {
+                bestDist = d;
+                best = e.transform;
+            }
+        }
+        return best;
+    }
+
+    Transform GetOrFindTarget()
+    {
+        if (_currentTarget == null || !_currentTarget.gameObject.activeInHierarchy ||
+            Vector2.Distance(weaponPivot.position, _currentTarget.position) > targetSearchRadius)
+        {
+            _currentTarget = FindNearestEnemy(targetSearchRadius);
+        }
+        return _currentTarget;
+    }
+    
     public void TakeDamage(float damage)
     {
         Debug.Log("TakeDamage called - Damage: " + damage + ", Current Health: " + _currentHealth);
@@ -330,4 +362,10 @@ public class PlayerController : MonoBehaviour
     public void SetHealth(float health) { _currentHealth = Mathf.Clamp(health, 0, maxHealth); }
     public float GetEnergy() { return _currentEnergy; }
     public void SetEnergy(float energy) { _currentEnergy = Mathf.Clamp(energy, 0, maxEnergy); }
+    
+    public void AddMoveSpeedPercent(float pct)          { moveSpeed *= (1f + pct); }
+    public void AddAttackSpeedPercent(float pct)        { attackCooldown = Mathf.Max(0.05f, attackCooldown * (1f - pct)); }
+    public void AddMaxHealth(float delta)               { maxHealth += delta; _currentHealth = Mathf.Min(maxHealth, _currentHealth + delta); }
+    public void AddHealthRegen(float deltaPerSecond)    { healthRegenPerSecond += deltaPerSecond; }
+    public void AddEnergyRegen(float deltaPerSecond)    { energyRegenPerSecond += deltaPerSecond; }
 }

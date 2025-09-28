@@ -72,6 +72,14 @@ public class GameManager : MonoBehaviour
     {
         _currentHealth = maxHealth;
         _currentEnergy = 0f;
-        Invoke("LoadHomeLevel", 1f);
+
+        if (GameOverUI.Instance != null)
+        {
+            GameOverUI.Instance.Show("Game Over"); 
+        }
+        else
+        {
+            Invoke("LoadHomeLevel", 1f); 
+        }
     }
 }
