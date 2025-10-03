@@ -65,8 +65,7 @@ public class WaveManager : MonoBehaviour
             Debug.LogError("Player not found in scene!");
         }
         
-        // Start first wave after delay
-        StartCoroutine(StartWaveAfterDelay(2f));
+        StartWave();
     }
     
     void Update()
@@ -158,7 +157,6 @@ public class WaveManager : MonoBehaviour
             if (enemyComp != null && _currentWave > 1)
             {
                 float healthMultiplier = Mathf.Pow(enemyHealthMultiplier, _currentWave - 1);
-                // You'll need to add a method to Enemy to set max health
             }
             
             _activeEnemies.Add(enemy);

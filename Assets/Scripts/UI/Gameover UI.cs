@@ -35,8 +35,21 @@ public class GameOverUI : MonoBehaviour
 
     private void Restart()
     {
-        Time.timeScale = 1f; // resume
-        var scene = SceneManager.GetActiveScene();
-        SceneManager.LoadScene(scene.name);
+        if (panel) panel.SetActive(false);
+
+        Time.timeScale = 1f;
+        
+        var temp = new GameObject("~DDOL_Cleaner");
+        DontDestroyOnLoad(temp);
+        var ddolScene = temp.scene;
+        var roots = ddolScene.GetRootGameObjects();
+        for (int i = 0; i < roots.Length; i++)
+        {
+            if (roots[i] != temp) Destroy(roots[i]);
+        }
+        Destroy(temp);
+
+        var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+        UnityEngine.SceneManagement.SceneManager.LoadScene(scene.name, UnityEngine.SceneManagement.LoadSceneMode.Single);
     }
 }
